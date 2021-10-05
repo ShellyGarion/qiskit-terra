@@ -16,7 +16,7 @@ import re
 import numpy as np
 
 from qiskit.exceptions import QiskitError
-from qiskit.circuit import QuantumCircuit, Instruction
+from qiskit.circuit import QuantumCircuit, Instruction, CircuitElement
 from qiskit.circuit.library.standard_gates import IGate, XGate, YGate, ZGate, HGate, SGate
 from qiskit.quantum_info.operators.base_operator import BaseOperator
 from qiskit.quantum_info.operators.operator import Operator
@@ -27,7 +27,7 @@ from .stabilizer_table import StabilizerTable
 from .clifford_circuits import _append_circuit
 
 
-class Clifford(BaseOperator, AdjointMixin):
+class Clifford(BaseOperator, AdjointMixin, CircuitElement):
     """An N-qubit unitary operator from the Clifford group.
 
     **Representation**
@@ -101,6 +101,12 @@ class Clifford(BaseOperator, AdjointMixin):
            `arXiv:quant-ph/0406196 <https://arxiv.org/abs/quant-ph/0406196>`_
     """
 
+    # hack!
+    # needed to avoid the error
+    #   AttributeError: 'Clifford' object has no attribute '_directive'
+    #   Caller: dagcircuit.py, line 1444:
+    _directive = False
+
     def __array__(self, dtype=None):
         if dtype:
             return np.asarray(self.to_matrix(), dtype=dtype)
@@ -136,6 +142,13 @@ class Clifford(BaseOperator, AdjointMixin):
 
         # Initialize BaseOperator
         super().__init__(num_qubits=self._table.num_qubits)
+
+        # hack!
+        # needed to avoid the error
+        #     AttributeError: 'Clifford' object has no attribute '_definition'
+        #     caller clifford.pu, line 592
+        self._definition = None
+
 
     def __repr__(self):
         return f"Clifford({repr(self.table)})"
@@ -524,6 +537,78 @@ class Clifford(BaseOperator, AdjointMixin):
         padded.table.phase[inds] = clifford.table.phase
 
         return padded
+
+    # These implement the required methods of the CircuitElement mixin
+
+    @property
+    def name(self):
+        return 'clifford'
+
+    @property
+    def num_params(self):
+        return 1
+
+    @property
+    def num_clbits(self):
+        return  0
+
+    @property
+    def params(self):
+        return (self._table,)
+
+    # hack!
+    # needed to avoid the error
+    #     AttributeError: 'Clifford' object has no attribute 'broadcast_arguments'
+    #     Caller: quantumcircuit.py, line 1183
+    # The function below is copied from Instruction class
+
+    def broadcast_arguments(self, qargs, cargs):
+        """
+        Validation of the arguments.
+
+        Args:
+            qargs (List): List of quantum bit arguments.
+            cargs (List): List of classical bit arguments.
+
+        Yields:
+            Tuple(List, List): A tuple with single arguments.
+
+        Raises:
+            CircuitError: If the input is not valid. For example, the number of
+                arguments does not match the gate expectation.
+        """
+        if len(qargs) != self.num_qubits:
+            raise CircuitError(
+                f"The amount of qubit arguments {len(qargs)} does not match"
+                f" the instruction expectation ({self.num_qubits})."
+            )
+
+        #  [[q[0], q[1]], [c[0], c[1]]] -> [q[0], c[0]], [q[1], c[1]]
+        flat_qargs = [qarg for sublist in qargs for qarg in sublist]
+        flat_cargs = [carg for sublist in cargs for carg in sublist]
+        yield flat_qargs, flat_cargs
+
+    # hack!
+    # needed to avoid the error
+    #    'Clifford' object has no attribute 'condition'
+    @property
+    def condition(self):
+        return None
+
+    # we need to make Clifford object hashable
+    # will create a more intelligent hash
+    def __hash__(self):
+        return 0
+
+    # This is where Clifford decomposition code gets called
+    @property
+    def definition(self):
+        """Return definition in terms of other basic gates."""
+        print(f"In Clifford::definition")
+        if self._definition is None:
+            print("Before to_instruction")
+            self._definition = self.to_circuit()
+        return self._definition
 
 
 # Update docstrings for API docs
