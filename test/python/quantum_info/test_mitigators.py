@@ -23,12 +23,12 @@ from qiskit.circuit import QuantumCircuit, QuantumRegister
 from qiskit.quantum_info.mitigation import CompleteReadoutMitigator
 
 # Noisy Simulation
-from qiskit.providers.aer import QasmSimulator
+from qiskit.providers.basicaer import QasmSimulatorPy
 
 # For simulation
 import qiskit.ignis.mitigation as mit
 from qiskit.result import Result
-from qiskit.providers.aer import noise
+from qiskit.providers.basicaer import noise
 from qiskit.test import QiskitTestCase
 
 
@@ -38,7 +38,7 @@ class NoisySimulationTest(QiskitTestCase):
     readout errors.
     """
 
-    sim = QasmSimulator()
+    sim = QasmSimulatorPy()
 
     # Example max qubit number
     num_qubits = 4
