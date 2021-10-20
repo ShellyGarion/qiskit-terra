@@ -75,9 +75,9 @@ class Instruction:
             raise CircuitError(
                 "bad instruction dimensions: %d qubits, %d clbits." % num_qubits, num_clbits
             )
-        self.name = name
-        self.num_qubits = num_qubits
-        self.num_clbits = num_clbits
+        self._name = name
+        self._num_qubits = num_qubits
+        self._num_clbits = num_clbits
 
         self._params = []  # a list of gate params stored
         # Custom instruction label
@@ -201,6 +201,21 @@ class Instruction:
         pass
 
     @property
+    def name(self):
+        """Return the name."""
+        return self._name
+
+    @property
+    def num_qubits(self):
+        """Return the number of qubits."""
+        return self._num_qubits
+
+    @property
+    def num_clbits(self):
+        """Return the number of clbits."""
+        return self._num_clbits
+
+    @property
     def params(self):
         """return instruction params."""
         return self._params
@@ -213,6 +228,11 @@ class Instruction:
                 self._params.append(single_param)
             else:
                 self._params.append(self.validate_parameter(single_param))
+
+    @property
+    def num_params(self):
+        """Return num_params."""
+        return len(self._params)
 
     def validate_parameter(self, parameter):
         """Instruction parameters has no validation or normalization."""
