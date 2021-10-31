@@ -20,6 +20,7 @@ import numpy as np
 
 from qiskit.result import Counts, marginal_counts, QuasiDistribution
 from .base_readout_mitigator import BaseReadoutMitigator
+from .utils import counts_probability_vector, stddev, expval_with_stddev, z_diagonal, str2diag
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class TensoredReadoutMitigator(BaseReadoutMitigator):
             amats: Optional, list of single-qubit readout error assignment matrices.
             backend: Optional, backend name.
         """
-        if amats in None:
+        if amats is None:
             amats = self._from_backend(backend)
         self._num_qubits = len(amats)
         self._assignment_mats = amats
@@ -93,14 +94,9 @@ class TensoredReadoutMitigator(BaseReadoutMitigator):
             which physical qubits these bit-values correspond to as
             ``circuit.measure(qubits, clbits)``.
         """
-        # Marginalize counts
-        if clbits is not None:
-            data = marginal_counts(data, clbits)
-
-        # Get probability vector
-        num_qubits = data.size()
-        probs_vec = self._to_probs_vec(data, num_qubits)
-        shots = data.shots()
+        probs_vec, shots = counts_probability_vector(
+            data, clbits=clbits, qubits=qubits, return_shots=True
+        )
 
         # Get qubit mitigation matrix and mitigate probs
         if qubits is None:
@@ -109,9 +105,9 @@ class TensoredReadoutMitigator(BaseReadoutMitigator):
 
         # Get operator coeffs
         if diagonal is None:
-            diagonal = self._z_diagonal(2 ** num_qubits)
+            diagonal = z_diagonal(2 ** num_qubits)
         else:
-            diagonal = self._str2diag(diagonal)
+            diagonal = str2diag(diagonal)
 
         # Apply transpose of mitigation matrix
         coeffs = np.reshape(diagonal, num_qubits * [2])
@@ -121,7 +117,7 @@ class TensoredReadoutMitigator(BaseReadoutMitigator):
         einsum_args += [list(range(num_qubits, 2 * num_qubits))]
         coeffs = np.einsum(*einsum_args).ravel()
 
-        return self._expval_with_stddev(coeffs, probs_vec, shots)
+        return expval_with_stddev(coeffs, probs_vec, shots)
 
     def quasi_probabilities(
         self,
@@ -152,19 +148,13 @@ class TensoredReadoutMitigator(BaseReadoutMitigator):
         Raises:
             QiskitError: if qubit and clbit kwargs are not valid.
         """
-        # Marginalize counts
-        if clbits is not None:
-            data = marginal_counts(data, clbits)
-
-        # Get total number of qubits and shots
-        num_qubits = data.size()
-        shots = data.shots()
-        # Get probability vector
-        probs_vec = self._to_probs_vec(data, num_qubits)
+        probs_vec, shots = counts_probability_vector(
+            data, clbits=clbits, qubits=qubits, return_shots=True
+        )
 
         # Get qubit mitigation matrix and mitigate probs
         if qubits is None:
-            qubits = range(num_qubits)
+            qubits = range(self._num_qubits)
         mit_mat = self.mitigation_matrix(qubits)
 
         # Apply transpose of mitigation matrix
@@ -173,7 +163,9 @@ class TensoredReadoutMitigator(BaseReadoutMitigator):
         for index, _ in enumerate(probs_vec):
             probs_dict[index] = probs_vec[index]
 
-        return QuasiDistribution(probs_dict), QuasiDistribution(self._stddev(probs_dict, shots))
+        return QuasiDistribution(probs_dict), stddev(
+            QuasiDistribution(probs_dict).nearest_probability_distribution(), shots
+        )
 
     def mitigation_matrix(self, qubits: List[int] = None) -> np.ndarray:
         r"""Return the measurement mitigation matrix for the specified qubits.
@@ -190,7 +182,7 @@ class TensoredReadoutMitigator(BaseReadoutMitigator):
             qubits = [qubits]
         mat = self._mitigation_mats[qubits[0]]
         for i in qubits[1:]:
-            mat = np.kron(self._mitigation_mats[qubits[i]], mat)
+            mat = np.kron(self._mitigation_mats[i], mat)
         return mat
 
     def assignment_matrix(self, qubits: List[int] = None) -> np.ndarray:
@@ -228,10 +220,10 @@ class TensoredReadoutMitigator(BaseReadoutMitigator):
         for qubit_idx, qubit_prop in enumerate(backend.properties().qubits):
             for prop in qubit_prop:
                 if prop.name == "prob_meas0_prep1":
-                    (amats[qubit_idx])[0, 0] = 1 - prop.value
                     (amats[qubit_idx])[0, 1] = prop.value
+                    (amats[qubit_idx])[1, 1] = 1 - prop.value
                 if prop.name == "prob_meas1_prep0":
                     (amats[qubit_idx])[1, 0] = prop.value
-                    (amats[qubit_idx])[1, 1] = 1 - prop.value
+                    (amats[qubit_idx])[0, 0] = 1 - prop.value
 
         return amats

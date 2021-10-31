@@ -19,6 +19,7 @@ import numpy as np
 
 from qiskit.result import Counts, marginal_counts, QuasiDistribution
 from .base_readout_mitigator import BaseReadoutMitigator
+from .utils import counts_probability_vector, stddev, expval_with_stddev, z_diagonal, str2diag
 
 logger = logging.getLogger(__name__)
 
@@ -77,30 +78,26 @@ class CompleteReadoutMitigator(BaseReadoutMitigator):
             which physical qubits these bit-values correspond to as
             ``circuit.measure(qubits, clbits)``.
         """
-        # Marginalize counts
-        if clbits is not None:
-            data = marginal_counts(data, clbits)
 
-        # Get probability vector
-        num_qubits = data.size()
-        probs_vec = self._to_probs_vec(data, num_qubits)
-        shots = data.shots()
+        probs_vec, shots = counts_probability_vector(
+            data, clbits=clbits, qubits=qubits, return_shots=True
+        )
 
         # Get qubit mitigation matrix and mitigate probs
         if qubits is None:
-            qubits = range(num_qubits)
+            qubits = range(self._num_qubits)
         mit_mat = self.mitigation_matrix(qubits)
 
         # Get operator coeffs
         if diagonal is None:
-            diagonal = self._z_diagonal(2 ** num_qubits)
+            diagonal = z_diagonal(2 ** self._num_qubits)
         else:
-            diagonal = self._str2diag(diagonal)
+            diagonal = str2diag(diagonal)
 
         # Apply transpose of mitigation matrix
         coeffs = mit_mat.T.dot(diagonal)
 
-        return self._expval_with_stddev(coeffs, probs_vec, shots)
+        return expval_with_stddev(coeffs, probs_vec, shots)
 
     def quasi_probabilities(
         self,
@@ -131,19 +128,13 @@ class CompleteReadoutMitigator(BaseReadoutMitigator):
         Raises:
             QiskitError: if qubit and clbit kwargs are not valid.
         """
-        # Marginalize counts
-        if clbits is not None:
-            data = marginal_counts(data, clbits)
-
-        # Get total number of qubits and shots
-        num_qubits = data.size()
-        shots = data.shots()
-        # Get probability vector
-        probs_vec = self._to_probs_vec(data, num_qubits)
+        probs_vec, shots = counts_probability_vector(
+            data, clbits=clbits, qubits=qubits, return_shots=True
+        )
 
         # Get qubit mitigation matrix and mitigate probs
         if qubits is None:
-            qubits = range(num_qubits)
+            qubits = range(self._num_qubits)
         mit_mat = self.mitigation_matrix(qubits)
 
         # Apply transpose of mitigation matrix
@@ -152,7 +143,9 @@ class CompleteReadoutMitigator(BaseReadoutMitigator):
         for index, _ in enumerate(probs_vec):
             probs_dict[index] = probs_vec[index]
 
-        return QuasiDistribution(probs_dict), QuasiDistribution(self._stddev(probs_dict, shots))
+        return QuasiDistribution(probs_dict), stddev(
+            QuasiDistribution(probs_dict).nearest_probability_distribution(), shots
+        )
 
     def mitigation_matrix(self, qubits: List[int] = None) -> np.ndarray:
         r"""Return the readout mitigation matrix for the specified qubits.
