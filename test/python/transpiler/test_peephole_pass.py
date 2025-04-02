@@ -14,7 +14,8 @@
 
 import unittest
 from test import QiskitTestCase
-from ddt import ddt, data
+from test import combine
+from ddt import ddt
 
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
@@ -34,7 +35,7 @@ from qiskit.circuit.library import (
     CRYGate,
     CUGate,
 )
-from qiskit.transpiler import Target, PassManager
+from qiskit.transpiler import Target, PassManager, InstructionProperties
 from qiskit.transpiler.passes.optimization.two_qubit_peephole import TwoQubitPeepholeOptimization
 from qiskit.transpiler.passes import Collect2qBlocks, ConsolidateBlocks, UnitarySynthesis
 
@@ -43,25 +44,37 @@ from qiskit.transpiler.passes import Collect2qBlocks, ConsolidateBlocks, Unitary
 class TestUnitarySynthesisBasisGates(QiskitTestCase):
     """Test UnitarySynthesis pass with basis gates."""
 
-    @data(
-        RXXGate(0.1),
-        RYYGate(0.1),
-        RZZGate(0.1),
-        RZXGate(0.1),
-        CPhaseGate(0.1),
-        CRZGate(0.1),
-        CRXGate(0.1),
-        CRYGate(0.1),
-        CUGate(0.1, 0.2, 0.3, 0.4),
+    @combine(
+        gate=[
+            RXXGate(0.1),
+            RYYGate(0.1),
+            RZZGate(0.1),
+            RZXGate(0.1),
+            CPhaseGate(0.1),
+            CRZGate(0.1),
+            CRXGate(0.1),
+            CRYGate(0.1),
+            CUGate(0.1, 0.2, 0.3, 0.4),
+        ],
+        add_noise=[True, False],
     )
-    def test_2_qubit_parametrized_gates_cx_target(self, gate):
+    def test_2_qubit_parametrized_gates_cx_target(self, gate, add_noise):
         """Test the synthesis of a circuit containing a 2-qubit parametrized gate
         on a target with a CX gate"""
         theta = Parameter("θ")
         target = Target(num_qubits=2)
-        target.add_instruction(CXGate())
-        target.add_instruction(RZGate(theta))
-        target.add_instruction(SXGate())
+        if add_noise:
+            target.add_instruction(
+                CXGate(), {(i, i + 1): InstructionProperties(error=0.001) for i in [0]}
+            )
+            target.add_instruction(RZGate(theta))
+            target.add_instruction(
+                SXGate(), {(i,): InstructionProperties(error=0.0001) for i in [0, 1]}
+            )
+        else:
+            target.add_instruction(CXGate())
+            target.add_instruction(RZGate(theta))
+            target.add_instruction(SXGate())
 
         qc = QuantumCircuit(2)
         qc.append(gate, [0, 1])
@@ -85,27 +98,39 @@ class TestUnitarySynthesisBasisGates(QiskitTestCase):
             dict(sorted(legacy.count_ops().items())),
         )
 
-    @data(
-        RXXGate(0.1),
-        RYYGate(0.1),
-        RZZGate(0.1),
-        RZXGate(0.1),
-        CPhaseGate(0.1),
-        CRZGate(0.1),
-        CRXGate(0.1),
-        CRYGate(0.1),
-        CUGate(0.1, 0.2, 0.3, 0.4),
+    @combine(
+        gate=[
+            RXXGate(0.1),
+            RYYGate(0.1),
+            RZZGate(0.1),
+            RZXGate(0.1),
+            CPhaseGate(0.1),
+            CRZGate(0.1),
+            CRXGate(0.1),
+            CRYGate(0.1),
+            CUGate(0.1, 0.2, 0.3, 0.4),
+        ],
+        add_noise=[True, False],
     )
-    def test_2_qubit_parametrized_gates_rzz_target(self, gate):
+    def test_2_qubit_parametrized_gates_rzz_target(self, gate, add_noise):
         """Test the synthesis of a circuit containing a 2-qubit parametrized gate
         on a target with a RZZ gate"""
         theta = Parameter("θ")
         lam = Parameter("λ")
         phi = Parameter("ϕ")
         target = Target(num_qubits=2)
-        target.add_instruction(RXGate(lam))
-        target.add_instruction(RZGate(theta))
-        target.add_instruction(RZZGate(phi))
+        if add_noise:
+            target.add_instruction(
+                RXGate(lam), {(i,): InstructionProperties(error=0.0001) for i in [0, 1]}
+            )
+            target.add_instruction(RZGate(theta))
+            target.add_instruction(
+                RZZGate(phi), {(i, i + 1): InstructionProperties(error=0.001) for i in [0]}
+            )
+        else:
+            target.add_instruction(RXGate(lam))
+            target.add_instruction(RZGate(theta))
+            target.add_instruction(RZZGate(phi))
 
         qc = QuantumCircuit(2)
         qc.append(gate, [0, 1])
@@ -147,6 +172,7 @@ class TestUnitarySynthesisBasisGates(QiskitTestCase):
 
         peephole = TwoQubitPeepholeOptimization(target)
         transpiled_circuit = peephole(qc)
+        self.assertTrue(set(transpiled_circuit.count_ops()).issubset({"rz", "rx", "rzz"}))
         self.assertEqual(transpiled_circuit.count_ops()["rzz"], 1)
 
 
