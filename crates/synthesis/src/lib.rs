@@ -21,6 +21,7 @@ mod multi_controlled;
 mod permutation;
 mod qft;
 pub mod two_qubit_decompose;
+pub mod rustiq;
 
 use pyo3::import_exception;
 use pyo3::prelude::*;
