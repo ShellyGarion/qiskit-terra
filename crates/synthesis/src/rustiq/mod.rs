@@ -11,7 +11,7 @@
 // that they have been altered from the originals.
 
 
-mod rotation_extraction;
+pub mod rotation_extraction;
 mod pauli_like;
 mod pauli_set;
 mod pauli;
