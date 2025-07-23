@@ -111,52 +111,7 @@ impl CliffordCircuit {
     pub fn extend_with(&mut self, other: &CliffordCircuit) {
         self.gates.extend_from_slice(&other.gates);
     }
-    /// Counts the number of CNOT gates
-    pub fn cnot_count(&self) -> usize {
-        self.gates
-            .iter()
-            .filter(|gate| matches!(gate, CliffordGate::CNOT(_, _)))
-            .count()
-    }
-    /// Counts the number of CNOT gates
-    pub fn entangling_count(&self) -> usize {
-        self.gates
-            .iter()
-            .filter(|gate| matches!(gate, CliffordGate::CNOT(_, _) | CliffordGate::CZ(_, _)))
-            .count()
-    }
-    /// Computes the CNOT depth of the circuit
-    pub fn cnot_depth(&self) -> usize {
-        let mut depths: Vec<usize> = vec![0; self.nqbits];
-        for gate in self.gates.iter() {
-            if let CliffordGate::CNOT(i, j) = gate {
-                let gate_depth = std::cmp::max(depths[*i], depths[*j]) + 1;
-                depths[*i] = gate_depth;
-                depths[*j] = gate_depth;
-            }
-        }
-        *depths.iter().max().unwrap()
-    }
-    /// Computes the CNOT depth of the circuit
-    pub fn entangling_depth(&self) -> usize {
-        let mut depths: Vec<usize> = vec![0; self.nqbits];
-        for gate in self.gates.iter() {
-            match gate {
-                CliffordGate::CNOT(i, j) => {
-                    let gate_depth = std::cmp::max(depths[*i], depths[*j]) + 1;
-                    depths[*i] = gate_depth;
-                    depths[*j] = gate_depth;
-                }
-                CliffordGate::CZ(i, j) => {
-                    let gate_depth = std::cmp::max(depths[*i], depths[*j]) + 1;
-                    depths[*i] = gate_depth;
-                    depths[*j] = gate_depth;
-                }
-                _ => {}
-            }
-        }
-        *depths.iter().max().unwrap()
-    }
+
     /// Returns the inverse of the circuit
     pub fn dagger(&self) -> Self {
         let new_gates = self.gates.iter().rev().map(|gate| gate.dagger()).collect();
