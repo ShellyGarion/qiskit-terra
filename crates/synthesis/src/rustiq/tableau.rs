@@ -1,7 +1,6 @@
 use crate::rustiq::pauli_like::PauliLike;
 use crate::rustiq::pauli_set::PauliSet;
 use crate::rustiq::clifford_circuit::CliffordCircuit;
-use rand::Rng;
 
 fn compute_phase_product_pauli(pset0: &PauliSet, vec: &[bool]) -> bool {
     let mut phase = false;

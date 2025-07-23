@@ -2,7 +2,6 @@ use crate::rustiq::pauli::Pauli;
 use crate::rustiq::pauli_like::PauliLike;
 use itertools::izip;
 use std::cmp::max;
-use std::fmt;
 
 const WIDTH: usize = 64;
 
@@ -336,51 +335,6 @@ impl PauliSet {
         vec1 == vec2
     }
 
-    /// Checks if two operators in the set commute
-    pub fn commute(&self, i: usize, j: usize) -> bool {
-        let mut count_diff = 0;
-        for k in 0..self.n {
-            if (self.get_entry(k, i) & self.get_entry(k + self.n, j))
-                ^ (self.get_entry(k + self.n, i) & self.get_entry(k, j))
-            {
-                count_diff += 1;
-            }
-        }
-        (count_diff % 2) == 0
-    }
-
-    // Returns the support of the operator (i.e. the list of qbit indices on which the operator acts non trivially)
-    pub fn get_support(&self, index: usize) -> Vec<usize> {
-        let mut support = Vec::new();
-        let index = index + self.start_offset;
-        let stride = get_stride(index);
-        let offset = get_offset(index);
-        for i in 0..self.n {
-            if (((self.data_array[i][stride] | self.data_array[i + self.n][stride]) >> offset) & 1)
-                != 0
-            {
-                support.push(i);
-            }
-        }
-        support
-    }
-
-    /// Returns the support size of the operator (i.e. the number of non-I Pauli term in the operator)
-    pub fn support_size(&self, index: usize) -> usize {
-        let index = index + self.start_offset;
-        let mut count = 0;
-        let stride = get_stride(index);
-        let offset = get_offset(index);
-        for i in 0..self.n {
-            if (((self.data_array[i][stride] | self.data_array[i + self.n][stride]) >> offset) & 1)
-                != 0
-            {
-                count += 1;
-            }
-        }
-        count
-    }
-
     /*
            Internal methods
     */
@@ -426,61 +380,6 @@ impl PauliSet {
         ) {
             *phase ^= *v1 & *v2 & *v3 & *v4;
         }
-    }
-
-    /*
-       Gate conjugation
-    */
-
-    /*
-       Metrics for synthesis algorithms
-    */
-    pub fn count_id(&self, qbit: usize) -> usize {
-        let mut count: usize = 0;
-        let nstart_stride = get_stride(self.start_offset);
-        for ns in nstart_stride..self.nstrides {
-            let r_x = self.data_array[qbit][ns];
-            let r_z = self.data_array[qbit + self.n][ns];
-            let value = r_x | r_z;
-            count += value.trailing_zeros() as usize;
-            if ns == nstart_stride {
-                count -= self.start_offset;
-            }
-            if ns == self.nstrides - 1 && value == 0 {
-                count -= 64 - get_offset(self.start_offset + self.noperators);
-            }
-            if value != 0 {
-                return count;
-            }
-        }
-        count
-    }
-
-    /// Returns `true` if pauli `col` for qubit `q` is `I`
-    #[inline]
-    pub fn is_i(&self, qbit: usize, col: usize) -> bool {
-        !self.get_entry(qbit, col) && !self.get_entry(qbit + self.n, col)
-    }
-
-    #[inline]
-    pub fn count_leading_i(&self, qbit: usize, order: &[usize]) -> usize {
-        order
-            .iter()
-            .take_while(|&&col| self.is_i(qbit, col))
-            .count()
-    }
-
-    /// Returns (the index of) the Pauli pair over the qubits `i` and `j`
-    /// for the Pauli operator in column `col`.
-    #[inline]
-    pub fn pauli_pair_index(&self, i: usize, j: usize, col: usize) -> usize {
-        let n = self.n;
-        let s0 = self.get_entry(i, col);
-        let d0 = self.get_entry(i + n, col);
-        let s1 = self.get_entry(j, col);
-        let d1 = self.get_entry(j + n, col);
-
-        ((s0 as usize) << 3) | ((d0 as usize) << 2) | ((s1 as usize) << 1) | (d1 as usize)
     }
 }
 
