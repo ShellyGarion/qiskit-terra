@@ -1,4 +1,3 @@
-use rand::Rng;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CliffordGate {
     CNOT(usize, usize),
@@ -80,32 +79,6 @@ impl CliffordCircuit {
                 .map(|(gate, qbits)| CliffordGate::from_vec(gate, qbits))
                 .collect(),
         }
-    }
-
-    pub fn random(nqubits: usize, ngates: usize) -> Self {
-        let mut rng = rand::thread_rng();
-        let mut circuit = Self::new(nqubits);
-        for _ in 0..ngates {
-            if rng.gen_bool(0.5) {
-                // CNOT
-                let i = rng.gen_range(0..nqubits);
-                let mut j = rng.gen_range(0..nqubits);
-                while j == i {
-                    j = rng.gen_range(0..nqubits);
-                }
-                circuit.gates.push(CliffordGate::CNOT(i, j));
-                continue;
-            }
-            if rng.gen_bool(0.5) {
-                // H
-                let i = rng.gen_range(0..nqubits);
-                circuit.gates.push(CliffordGate::H(i));
-                continue;
-            }
-            let i = rng.gen_range(0..nqubits);
-            circuit.gates.push(CliffordGate::S(i));
-        }
-        circuit
     }
 
     pub fn extend_with(&mut self, other: &CliffordCircuit) {
