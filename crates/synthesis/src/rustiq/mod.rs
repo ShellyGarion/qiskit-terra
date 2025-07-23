@@ -17,4 +17,3 @@ mod pauli_set;
 mod pauli;
 mod clifford_circuit;
 mod tableau;
-mod chunks;
