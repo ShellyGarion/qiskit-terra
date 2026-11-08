@@ -298,34 +298,34 @@ class BasePauli(BaseOperator, AdjointMixin, MultiplyMixin):
         """Evolve a Pauli by a Clifford (default is Heisenberg frame)."""
 
         if frame == "h":
-            # Heisenberg evolution C^dg.P.C.
+            # Heisenberg evolution C^dg.P.C via the Rust `py_evolve_clifford_pauli_list`
+            # function.
+            from qiskit._accelerate.clifford import py_evolve_clifford_pauli_list
 
-            # Pinning signs (phases) is expensive. We can pin the 2N signs of `C^dg`'s rows, or
-            # just the L signs of the result `(C^dg.P.C)`; pin whichever set is smaller. This
-            # simple threshold (2N vs L) was near-optimal for benchmarks up to 250 qubits.
-            if 2 * other.num_qubits <= self._x.shape[0]:
-                # Few qubits, many Paulis: Compute C^dg (pins signs) and evolve by it
-                other = other.adjoint()  # O(N^3)
-                return self._evolve_clifford(other, qargs=qargs, frame="s")
+            if qargs is None:
+                x_in = self._x
+                z_in = self._z
+            else:
+                qargs_ = list(qargs)
+                x_in = self._x[:, qargs_]
+                z_in = self._z[:, qargs_]
 
-            # Many qubits, few Paulis: Get result's signs by enforcing round-trip signs are +1,
-            # never paying for C^dg's signs. Build `inv` with ZX tableau of C^dg but wrong signs
-            # via the cheap part of `Clifford._conjugate_transpose` (at time of writing):
-            inv = other.copy()
-            tmp = inv.destab_x.copy()
-            inv.destab_x = inv.stab_z.T
-            inv.destab_z = inv.destab_z.T
-            inv.stab_x = inv.stab_x.T
-            inv.stab_z = tmp.T
-            # Evolving by `inv` gives the correct ZX content of C^dg.P.C but wrong signs:
-            ret = self._evolve_clifford(inv, qargs=qargs, frame="s")
-            # Recover the signs by evolving back: C.(C^dg.P.C).C^dg = P. Since `ret`
-            # already has the right ZX content, evolving it forward reproduces P's ZX content
-            # exactly; only the signs can differ.
-            fwd = ret._evolve_clifford(other, qargs=qargs, frame="s")
-            # Evolution merely adds to the phase (is linear), so `ret`'s phase error passes
-            # unchanged into `fwd`; read it off as `fwd.phase - self.phase` and subtract it:
-            ret.phase -= fwd.phase - self.phase
+            # Build the Clifford once, evolve all Pauli rows.
+            out_x, out_z, signs = py_evolve_clifford_pauli_list(other.tableau, x_in, z_in)
+
+            # Phase correction.
+            group_phase_in = (self._phase - _count_y(x_in, z_in)) % 4
+            group_phase_out = (group_phase_in + 2 * signs) % 4
+            new_phase = (group_phase_out + _count_y(out_x, out_z)) % 4
+
+            ret = self.copy()
+            if qargs is None:
+                ret._x = out_x
+                ret._z = out_z
+            else:
+                ret._x[:, qargs_] = out_x
+                ret._z[:, qargs_] = out_z
+            ret._phase = new_phase
             return ret
 
         # Schrodinger evolution C.P.C^dg.
