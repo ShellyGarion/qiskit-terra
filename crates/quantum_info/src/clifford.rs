@@ -16,6 +16,9 @@ use ndarray::ArrayView2;
 
 use thiserror::Error;
 
+use itertools::izip;
+use numpy::IntoPyArray;
+
 /// 1-qubit Paulis
 #[derive(Clone, Copy, PartialEq)]
 pub enum Pauli1q {
@@ -1108,6 +1111,143 @@ fn compute_phase_product_pauli(
         }
     }
     (((ifact % 4) >> 1) != 0) ^ phase
+}
+
+/// Python-exposed wrapper around [`Clifford::evolve_pauli`].
+///
+/// Evolves a (sparse) Pauli gate by the given Clifford, performing the Heisenberg evolution
+/// ``C^dg . P . C``.
+///
+/// # Arguments
+///
+/// * `clifford_tableau` – The ``(2N, 2N+1)`` boolean tableau of the Clifford.
+/// * `in_z` – The Z bits of the input Pauli in sparse format.
+/// * `in_x` – The X bits of the input Pauli in sparse format.
+/// * `indices_in` – The qubit indices of the non-identity terms.
+///
+/// # Returns
+///
+/// A tuple ``(sign, out_z, out_x, out_indices)`` where:
+/// * ``sign``        – ``True`` means the overall factor is ``-1``, ``False`` means ``+1``.
+/// * ``out_z``       – Z bits of the evolved Pauli.
+/// * ``out_x``       – X bits of the evolved Pauli.
+/// * ``out_indices`` – Qubit indices of the non-identity terms of the evolved Pauli.
+#[cfg(feature = "python")]
+#[pyo3::pyfunction]
+pub fn py_evolve_clifford_pauli(
+    clifford_tableau: numpy::PyReadonlyArray2<bool>,
+    in_z: Vec<bool>,
+    in_x: Vec<bool>,
+    indices_in: Vec<u32>,
+) -> (bool, Vec<bool>, Vec<bool>, Vec<u32>) {
+    let tableau_array = clifford_tableau.as_array();
+    let mut clifford = Clifford::from_array(tableau_array);
+    clifford.evolve_pauli(&in_z, &in_x, &indices_in)
+}
+
+/// Return type of [`py_evolve_clifford_pauli_list`]:
+/// `(out_x, out_z, signs)` as owned Python numpy arrays.
+#[cfg(feature = "python")]
+type EvolvedPauliList = (
+    pyo3::Py<numpy::PyArray2<bool>>,
+    pyo3::Py<numpy::PyArray2<bool>>,
+    pyo3::Py<numpy::PyArray1<u8>>,
+);
+
+/// Python-exposed batch wrapper around [`Clifford::evolve_pauli`].
+///
+/// Evolves every row of a dense Pauli list by the given Clifford in one call, performing
+/// the Heisenberg evolution ``C^dg . P . C`` for each Pauli.
+///
+/// # Arguments
+///
+/// * `clifford_tableau` – The ``(2N, 2N+1)`` boolean tableau of the Clifford.
+/// * `x_list` – Dense ``(num_paulis, num_qubits)`` boolean array of X bits.
+/// * `z_list` – Dense ``(num_paulis, num_qubits)`` boolean array of Z bits.
+///
+/// # Returns
+///
+/// A tuple ``(out_x, out_z, signs)`` where:
+/// * ``out_x``  – Dense ``(num_paulis, num_qubits)`` boolean array of evolved X bits.
+/// * ``out_z``  – Dense ``(num_paulis, num_qubits)`` boolean array of evolved Z bits.
+/// * ``signs``  – 1-D integer array of length ``num_paulis``. Entry ``r`` is ``1`` when
+///               the sign for row ``r`` is ``True`` (i.e. a ``-1`` factor in the
+///               group-phase convention), and ``0`` otherwise.
+#[cfg(feature = "python")]
+#[pyo3::pyfunction]
+pub fn py_evolve_clifford_pauli_list(
+    py: pyo3::Python,
+    clifford_tableau: numpy::PyReadonlyArray2<bool>,
+    x_list: numpy::PyReadonlyArray2<bool>,
+    z_list: numpy::PyReadonlyArray2<bool>,
+) -> EvolvedPauliList {
+    let tableau_array = clifford_tableau.as_array();
+    let x_array = x_list.as_array();
+    let z_array = z_list.as_array();
+
+    let num_paulis = x_array.nrows();
+    let num_qubits = x_array.ncols();
+
+    // Build the Clifford once and reuse it for every Pauli row.
+    let mut clifford = Clifford::from_array(tableau_array);
+
+    let mut out_x = ndarray::Array2::<bool>::default((num_paulis, num_qubits));
+    let mut out_z = ndarray::Array2::<bool>::default((num_paulis, num_qubits));
+    let mut signs = ndarray::Array1::<u8>::zeros(num_paulis);
+
+    izip!(
+        x_array.rows(),
+        z_array.rows(),
+        out_x.rows_mut(),
+        out_z.rows_mut(),
+        signs.iter_mut()
+    )
+    .for_each(|(x_row, z_row, mut out_x_row, mut out_z_row, sign_out)| {
+        // Build the sparse representation via a single filtering iterator.
+        let sparse_iter = x_row
+            .iter()
+            .copied()
+            .zip(z_row.iter().copied())
+            .enumerate()
+            .filter_map(|(qubit, (x, z))| (x || z).then_some((z, x, qubit as u32)));
+        let (in_z, in_x, indices_in): (Vec<bool>, Vec<bool>, Vec<u32>) =
+            itertools::multiunzip(sparse_iter);
+
+        if indices_in.is_empty() {
+            out_x_row.assign(&x_row);
+            out_z_row.assign(&z_row);
+            return;
+        }
+
+        let (sign, sparse_z, sparse_x, sparse_indices) =
+            clifford.evolve_pauli(&in_z, &in_x, &indices_in);
+
+        // Scatter the sparse output back into the dense row.
+        sparse_indices
+            .iter()
+            .zip(sparse_x)
+            .zip(sparse_z)
+            .for_each(|((&idx, x), z)| {
+                out_x_row[idx as usize] = x;
+                out_z_row[idx as usize] = z;
+            });
+
+        *sign_out = sign as u8;
+    });
+
+    (
+        out_x.into_pyarray(py).unbind(),
+        out_z.into_pyarray(py).unbind(),
+        signs.into_pyarray(py).unbind(),
+    )
+}
+
+#[cfg(feature = "python")]
+pub fn clifford_mod(m: &pyo3::Bound<pyo3::types::PyModule>) -> pyo3::PyResult<()> {
+    use pyo3::types::PyModuleMethods;
+    m.add_function(pyo3::wrap_pyfunction!(py_evolve_clifford_pauli, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(py_evolve_clifford_pauli_list, m)?)?;
+    Ok(())
 }
 
 impl fmt::Debug for Clifford {
