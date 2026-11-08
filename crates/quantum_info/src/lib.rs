@@ -37,3 +37,6 @@ pub(crate) mod imports {
 }
 #[cfg(feature = "python")]
 import_exception!(qiskit.exceptions, QiskitError);
+
+#[cfg(feature = "python")]
+pub use clifford::clifford_mod;
